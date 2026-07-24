@@ -261,11 +261,21 @@ def background_monitor():
             time.sleep(60)
 
 
-# Start background thread
-monitor_thread = threading.Thread(target=background_monitor, daemon=True)
+def _init_background():
+    """Start monitor thread and seed data for any WSGI server."""
+    feed_agg.seed_initial_data()
+    telegram.seed_channels()
+    monitor_thread = threading.Thread(target=background_monitor, daemon=True)
+    monitor_thread.start()
+
+
+# ---- app factory boilerplate ----
+# Seed data and start the background thread when the module is loaded.
+# In production (gunicorn --preload), this runs once before forking.
+_init_background()
 
 # ---------------------------------------------------------------------------
-# Main
+# Main (dev only)
 # ---------------------------------------------------------------------------
 
 if __name__ == '__main__':
