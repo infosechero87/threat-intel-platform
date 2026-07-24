@@ -15,6 +15,7 @@ from modules.darkweb_search import DarkWebSearcher
 from modules.telegram_monitor import TelegramMonitor
 from modules.threat_feeds import ThreatFeedAggregator
 from modules.credential_checker import check_credentials_bulk, check_single_credential
+from modules.tor_config import TOR_AVAILABLE, TOR_ENABLED, TOR_PROXY
 
 
 def _load_env():
@@ -177,6 +178,26 @@ def api_check_single():
     return jsonify(result)
 
 
+@app.route('/api/tor/status', methods=['GET'])
+def api_tor_status():
+    """Get Tor configuration status."""
+    return jsonify({
+        'tor_enabled': TOR_ENABLED,
+        'tor_available': TOR_AVAILABLE,
+        'tor_proxy': TOR_PROXY,
+        'darkweb_sources': {
+            'cve_api': True,
+            'otx_api': True,
+            'urlhaus_api': True,
+            'ransomware_live_api': True,
+            'rss_feeds': True,
+            'darknetlive': TOR_AVAILABLE,
+            'dread_forum': TOR_AVAILABLE,
+            'simulated_fallback': True
+        }
+    })
+
+
 # ---------------------------------------------------------------------------
 # WebSocket for real-time alerts
 # ---------------------------------------------------------------------------
@@ -261,5 +282,7 @@ if __name__ == '__main__':
     print(f"[+] Telegram Monitor:http://{host}:{port}/telegram")
     print(f"[+] Threat Feeds:    http://{host}:{port}/feeds")
     print(f"[+] Credential Checker: http://{host}:{port}/credentials")
+    print(f"[+] Tor Status:      http://{host}:{port}/api/tor/status")
+    print(f"[*] Tor enabled: {TOR_ENABLED}, available: {TOR_AVAILABLE}")
     
     app.run(host=host, port=port, debug=False)

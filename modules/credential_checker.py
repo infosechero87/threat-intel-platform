@@ -9,7 +9,7 @@ import hashlib
 import json
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib.parse import quote_plus
 import urllib.request
 import urllib.error
@@ -153,7 +153,7 @@ def check_single_credential(email: str, password: str = None) -> dict:
     """Check a single email (+ optional password) against breach databases."""
     result = {
         'email': email,
-        'checked_at': datetime.utcnow().isoformat(),
+        'checked_at': datetime.now(timezone.utc).isoformat(),
         'email_breached': False,
         'email_breaches': [],
         'password_pwned': False,

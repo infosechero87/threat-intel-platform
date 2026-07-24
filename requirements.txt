@@ -1,6 +1,8 @@
 flask==3.0.3
 flask-sock==0.7.0
 requests==2.32.3
+requests[socks]==2.32.3
+PySocks==1.7.1
 beautifulsoup4==4.12.3
 lxml==5.2.2
 feedparser==6.0.11
