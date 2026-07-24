@@ -212,28 +212,42 @@ class DarkWebSearcher:
     # ------------------------------------------------------------------
 
     def _search_cve_api(self, query: str) -> list[dict]:
-        """Query the CVE search API (CIRCL)."""
+        """Query the NVD NIST CVE API."""
         try:
             session = get_clearnet_session()
-            url = f"https://cve.circl.lu/api/search/{quote_plus(query)}"
-            resp = session.get(url, timeout=15)
+            url = f"https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch={quote_plus(query)}&resultsPerPage=10"
+            resp = session.get(url, timeout=20, headers={"User-Agent": USER_AGENT})
+            if resp.status_code == 403:
+                time.sleep(6)
+                resp = session.get(url, timeout=20, headers={"User-Agent": USER_AGENT})
             resp.raise_for_status()
             data = resp.json()
         except Exception:
             return []
 
         results = []
-        for cve in data.get("data", [])[:10]:
-            cvss = cve.get("cvss") or 0
+        for vuln in data.get("vulnerabilities", [])[:10]:
+            cve = vuln.get("cve", {})
+            cve_id = cve.get("id", "")
+            desc = ""
+            for d in cve.get("descriptions", []):
+                if d.get("lang") == "en":
+                    desc = d.get("value", "")
+                    break
+            metrics = cve.get("metrics", {})
+            cvss_v31 = metrics.get("cvssMetricV31", [{}])[0].get("cvssData", {}).get("baseScore", 0)
+            cvss_v30 = metrics.get("cvssMetricV30", [{}])[0].get("cvssData", {}).get("baseScore", 0)
+            cvss = cvss_v31 or cvss_v30 or 0
+            published = cve.get("published", "")[:10]
             results.append(
                 {
-                    "id": cve.get("id", ""),
+                    "id": cve_id,
                     "source": "CVE Database",
                     "type": "cve",
-                    "title": f"{cve.get('id', '')} - {(cve.get('summary', '') or '')[:200]}",
-                    "content": cve.get("summary", ""),
+                    "title": f"{cve_id} - {desc[:200]}",
+                    "content": desc,
                     "severity": _cvss_to_severity(cvss),
-                    "date": (cve.get("Published", "") or "")[:10],
+                    "date": published,
                     "tags": ["cve", "vulnerability"],
                     "cvss": cvss,
                 }
@@ -277,41 +291,36 @@ class DarkWebSearcher:
     # ------------------------------------------------------------------
 
     def _search_urlhaus(self, query: str) -> list[dict]:
-        """Query URLhaus for malware distribution URLs."""
+        """Query URLhaus CSV dump for malware URLs."""
         try:
             session = get_clearnet_session()
-            # Search by tag/signature
-            url = "https://urlhaus-api.abuse.ch/v1/urls/recent/"
-            resp = session.post(url, data={}, timeout=15)
-            resp.raise_for_status()
-            data = resp.json()
-        except Exception:
-            return []
-
-        results = []
-        query_lower = query.lower()
-        for entry in data.get("urls", [])[:20]:
-            signature = (entry.get("signature") or "").lower()
-            tag_str = (entry.get("tags") or "").lower()
-            if query_lower in signature or query_lower in tag_str:
-                results.append(
-                    {
-                        "id": f"urlhaus-{entry.get('id', '')}",
+            resp = session.get("https://urlhaus.abuse.ch/downloads/csv_recent/", timeout=20)
+            if resp.status_code != 200:
+                return []
+            query_lower = query.lower()
+            results = []
+            import csv, io
+            reader = csv.DictReader(io.StringIO(resp.text))
+            for row in reader:
+                if len(results) >= 10:
+                    break
+                url = row.get("url", "")
+                threat = row.get("threat", "")
+                tags = row.get("tags", "")
+                if query_lower in url.lower() or query_lower in threat.lower() or query_lower in tags.lower():
+                    results.append({
+                        "id": f"urlhaus-{hashlib.md5(url.encode()).hexdigest()[:12]}",
                         "source": "URLhaus",
                         "type": "malware_url",
-                        "title": f"Malware URL: {entry.get('url', '')[:100]}",
-                        "content": (
-                            f"URL: {entry.get('url', '')}\n"
-                            f"Status: {entry.get('url_status', '')}\n"
-                            f"Threat: {entry.get('threat', '')}\n"
-                            f"Tags: {entry.get('tags', '')}"
-                        ),
-                        "severity": _threat_to_severity(entry.get("threat", "")),
-                        "date": (entry.get("date_added", "") or "")[:10],
-                        "tags": (entry.get("tags") or "").split(","),
-                    }
-                )
-        return results
+                        "title": f"Malware URL: {url[:100]}",
+                        "content": f"URL: {url}\nStatus: {row.get('url_status', '')}\nThreat: {threat}\nTags: {tags}",
+                        "severity": _threat_to_severity(threat),
+                        "date": (row.get("dateadded", "") or "")[:10],
+                        "tags": tags.split(",") if tags else [],
+                    })
+            return results
+        except Exception:
+            return []
 
     # ------------------------------------------------------------------
     # Ransomware.live API (real)
@@ -327,6 +336,7 @@ class DarkWebSearcher:
                 query_lower in entry.get("title", "").lower()
                 or query_lower in entry.get("content", "").lower()
                 or query_lower in entry.get("group_name", "").lower()
+                or query_lower in entry.get("tags", [])
             ):
                 results.append(entry)
         return results
@@ -352,24 +362,26 @@ class DarkWebSearcher:
 
         entries = []
         for v in data[:30]:
-            group = v.get("group_name") or "Unknown"
-            title = v.get("post_title") or v.get("victim") or "Untitled"
+            group = v.get("group") or "Unknown"
             victim = v.get("victim") or "Unknown"
+            desc = (v.get("description") or "")[:300]
+            title = f"[{group}] {victim}"
             entries.append(
                 {
-                    "id": f"rw-{hashlib.md5((group + title).encode()).hexdigest()[:12]}",
+                    "id": f"rw-{hashlib.md5((group + victim).encode()).hexdigest()[:12]}",
                     "source": "Ransomware.live",
                     "type": "ransomware_victim",
-                    "title": f"[{group}] {title[:150]}",
+                    "title": title,
                     "content": (
                         f"Group: {group}\n"
                         f"Victim: {victim}\n"
                         f"Country: {v.get('country', 'Unknown')}\n"
-                        f"Date: {v.get('date', 'Unknown')}\n"
-                        f"Description: {v.get('description', '')}"
+                        f"Activity: {v.get('activity', 'Unknown')}\n"
+                        f"Date: {(v.get('attackdate') or v.get('discovered') or '')[:10]}\n"
+                        f"Description: {desc}"
                     ),
                     "severity": "critical",
-                    "date": (v.get("date") or "")[:10],
+                    "date": (v.get("attackdate") or v.get("discovered") or "")[:10],
                     "tags": ["ransomware", "victim", group.lower()],
                     "group_name": group,
                 }

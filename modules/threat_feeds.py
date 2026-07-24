@@ -367,23 +367,23 @@ class ThreatFeedAggregator:
 
         entries = []
         for v in data[:5]:
-            group = v.get("group_name") or "Unknown"
-            title = v.get("post_title") or v.get("victim") or "Untitled"
+            group = v.get("group") or "Unknown"
             victim = v.get("victim") or "Unknown"
             entries.append(
                 {
-                    "id": f"rwlive-{hashlib.md5((group + title).encode()).hexdigest()[:12]}",
+                    "id": f"rwlive-{hashlib.md5((group + victim).encode()).hexdigest()[:12]}",
                     "source": "Ransomware.live",
-                    "title": f"[{group}] {title[:150]}",
+                    "title": f"[{group}] {victim}",
                     "summary": (
                         f"Group: {group}. "
                         f"Victim: {victim}. "
-                        f"Country: {v.get('country', 'Unknown')}."
+                        f"Country: {v.get('country', 'Unknown')}. "
+                        f"{v.get('activity', '')}"
                     ),
                     "severity": "critical",
                     "category": "ransomware",
                     "url": "",
-                    "timestamp": (v.get("date") or datetime.now(timezone.utc).strftime("%Y-%m-%d")) + "T00:00:00Z",
+                    "timestamp": (v.get("attackdate") or v.get("discovered") or datetime.now(timezone.utc).strftime("%Y-%m-%d")) + "T00:00:00Z",
                     "iocs": [],
                     "tlp": "AMBER",
                     "live": True,
