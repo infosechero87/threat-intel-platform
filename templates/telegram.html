@@ -1,0 +1,221 @@
+{% extends "base.html" %}
+{% block title %}Telegram Monitor - Threat Intelligence Platform{% endblock %}
+{% block nav_telegram %}active{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>📡 Telegram Threat Intelligence Monitor</h1>
+    <p class="subtitle">Monitor hacker forums, ransomware groups, and threat intel channels on Telegram</p>
+</div>
+
+<div class="telegram-layout">
+    <div class="telegram-sidebar">
+        <div class="panel-header">
+            <h2>📋 Tracked Channels</h2>
+            <button class="btn btn-sm" onclick="showAddChannel()">+ Add</button>
+        </div>
+        <div id="add-channel-form" style="display:none" class="add-channel-form">
+            <input type="text" id="new-channel" placeholder="Channel username or invite link...">
+            <button class="btn btn-primary btn-sm" onclick="addChannel()">Add</button>
+            <button class="btn btn-sm" onclick="document.getElementById('add-channel-form').style.display='none'">Cancel</button>
+        </div>
+        <div class="channel-list" id="channel-list">
+            <div class="loading-spinner">Loading channels...</div>
+        </div>
+    </div>
+
+    <div class="telegram-main">
+        <div class="search-box" style="margin-bottom: 16px">
+            <input type="text" id="telegram-search" class="search-input" placeholder="Search Telegram messages for IOCs, exploits, leaks..."
+                   onkeydown="if(event.key==='Enter') searchTelegram()">
+            <button onclick="searchTelegram()" class="btn btn-primary">🔍 Search</button>
+        </div>
+
+        <div class="quick-searches">
+            <span class="quick-label">Quick:</span>
+            <button class="btn btn-sm" onclick="quickTelegramSearch('exploit')">Exploits</button>
+            <button class="btn btn-sm" onclick="quickTelegramSearch('leak')">Data Leaks</button>
+            <button class="btn btn-sm" onclick="quickTelegramSearch('ransomware')">Ransomware</button>
+            <button class="btn btn-sm" onclick="quickTelegramSearch('0day')">0Day</button>
+            <button class="btn btn-sm" onclick="quickTelegramSearch('CVE')">CVEs</button>
+            <button class="btn btn-sm" onclick="quickTelegramSearch('credential')">Credentials</button>
+        </div>
+
+        <div class="messages-container" id="messages-container">
+            <div class="results-placeholder">
+                <div class="placeholder-icon">📡</div>
+                <p>Select a channel from the sidebar or search across all tracked channels</p>
+                <p class="placeholder-sub">Monitored channels include ransomware groups, exploit traders, data leak sites, and IOC sharing communities</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentChannel = null;
+
+async function loadChannels() {
+    try {
+        const resp = await fetch('/api/telegram/channels');
+        const data = await resp.json();
+        const container = document.getElementById('channel-list');
+        
+        let html = '';
+        for (const [category, channels] of Object.entries(data.channels)) {
+            html += `<div class="channel-category">${category.replace(/_/g, ' ').toUpperCase()}</div>`;
+            for (const ch of channels) {
+                html += `
+                    <div class="channel-item ${currentChannel === ch.id ? 'active' : ''}" 
+                         onclick="selectChannel('${ch.id}')">
+                        <div class="channel-name">
+                            <span class="risk-dot ${ch.risk_level}"></span>
+                            ${escapeHtml(ch.name)}
+                        </div>
+                        <div class="channel-meta">
+                            ${ch.member_count.toLocaleString()} members · ${ch.type}
+                        </div>
+                    </div>`;
+            }
+        }
+        container.innerHTML = html;
+    } catch (e) {
+        document.getElementById('channel-list').innerHTML = '<div class="error-message">Failed to load channels</div>';
+    }
+}
+
+function selectChannel(channelId) {
+    currentChannel = channelId;
+    loadChannels();
+    // Load messages for this channel
+    loadChannelMessages(channelId);
+}
+
+async function loadChannelMessages(channelId) {
+    const container = document.getElementById('messages-container');
+    container.innerHTML = '<div class="loading-spinner">Loading messages...</div>';
+    
+    try {
+        const resp = await fetch('/api/telegram/search', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({query: '', channel: channelId, limit: 50})
+        });
+        const data = await resp.json();
+        renderMessages(data.results);
+    } catch (e) {
+        container.innerHTML = '<div class="error-message">Failed to load messages</div>';
+    }
+}
+
+async function searchTelegram() {
+    const query = document.getElementById('telegram-search').value.trim();
+    if (!query) return;
+
+    const container = document.getElementById('messages-container');
+    container.innerHTML = '<div class="loading-spinner">Searching Telegram channels...</div>';
+
+    try {
+        const resp = await fetch('/api/telegram/search', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                query: query,
+                channel: currentChannel,
+                limit: 100
+            })
+        });
+        const data = await resp.json();
+        renderMessages(data.results);
+    } catch (e) {
+        container.innerHTML = '<div class="error-message">Search failed</div>';
+    }
+}
+
+function quickTelegramSearch(query) {
+    document.getElementById('telegram-search').value = query;
+    searchTelegram();
+}
+
+function renderMessages(messages) {
+    const container = document.getElementById('messages-container');
+    
+    if (!messages || messages.length === 0) {
+        container.innerHTML = '<div class="results-placeholder"><p>No messages found</p></div>';
+        return;
+    }
+
+    container.innerHTML = messages.map(msg => {
+        const isCritical = msg.text.toLowerCase().includes('critical') || 
+                          msg.text.toLowerCase().includes('ransomware') ||
+                          msg.text.toLowerCase().includes('breach') ||
+                          msg.text.toLowerCase().includes('0day');
+        return `
+            <div class="message-card ${isCritical ? 'critical' : ''}">
+                <div class="message-header">
+                    <span class="channel-badge">${escapeHtml(msg.channel_name)}</span>
+                    <span class="message-views">👁 ${(msg.views || 0).toLocaleString()}</span>
+                    <span class="message-forwards">↗ ${(msg.forwards || 0).toLocaleString()}</span>
+                    <span class="message-time">${msg.timestamp?.replace('T', ' ').replace('Z', '') || ''}</span>
+                </div>
+                <div class="message-text">${highlightIOCs(escapeHtml(msg.text))}</div>
+                ${msg.has_attachment ? '<div class="message-attachment">📎 Has attachment</div>' : ''}
+            </div>
+        `;
+    }).join('');
+}
+
+function highlightIOCs(text) {
+    // Highlight IPs, domains, hashes, CVEs
+    text = text.replace(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/g, '<span class="ioc ip">$1</span>');
+    text = text.replace(/([a-zA-Z0-9-]+\.(com|org|net|io|xyz|ru|cn|st|su))/gi, '<span class="ioc domain">$1</span>');
+    text = text.replace(/(CVE-\d{4}-\d{4,})/g, '<span class="ioc cve">$1</span>');
+    text = text.replace(/([A-Fa-f0-9]{64})/g, '<span class="ioc hash">$1</span>');
+    return text;
+}
+
+function showAddChannel() {
+    document.getElementById('add-channel-form').style.display = 'flex';
+}
+
+async function addChannel() {
+    const channel = document.getElementById('new-channel').value.trim();
+    if (!channel) return;
+
+    try {
+        const resp = await fetch('/api/telegram/channels', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({channel: channel})
+        });
+        if (resp.ok) {
+            document.getElementById('new-channel').value = '';
+            document.getElementById('add-channel-form').style.display = 'none';
+            loadChannels();
+            showToast(`Channel "${channel}" added to tracking`);
+        }
+    } catch (e) {
+        showToast('Failed to add channel');
+    }
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text || '';
+    return div.innerHTML;
+}
+
+function showToast(msg) {
+    const container = document.getElementById('alert-toast');
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    toast.textContent = msg;
+    container.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
+}
+
+// Initialize
+loadChannels();
+</script>
+{% endblock %}

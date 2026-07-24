@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}Threat Feeds - Threat Intelligence Platform{% endblock %}
+{% block nav_feeds %}active{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>⚡ Real-Time Threat Feeds</h1>
+    <p class="subtitle">Aggregated threat intelligence from government, vendor, and research sources</p>
+</div>
+
+<div class="feed-filters">
+    <button class="btn btn-sm active" onclick="filterFeeds('all', this)">All</button>
+    <button class="btn btn-sm" onclick="filterFeeds('government', this)">🏛 Government</button>
+    <button class="btn btn-sm" onclick="filterFeeds('vendor', this)">🏢 Vendor</button>
+    <button class="btn btn-sm" onclick="filterFeeds('research', this)">🔬 Research</button>
+    <button class="btn btn-sm" onclick="filterFeeds('news', this)">📰 News</button>
+    <div style="flex:1; text-align:right">
+        <button class="btn btn-sm" onclick="refreshFeeds()">🔄 Refresh</button>
+        <button class="btn btn-sm" onclick="exportFeeds()">📥 Export</button>
+    </div>
+</div>
+
+<div class="feeds-grid" id="feeds-grid">
+    <div class="loading-spinner" style="grid-column:1/-1; padding:60px">Loading threat intelligence feeds...</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allFeeds = [];
+let currentFilter = 'all';
+
+async function loadFeeds(category = 'all') {
+    const grid = document.getElementById('feeds-grid');
+    grid.innerHTML = '<div class="loading-spinner" style="grid-column:1/-1; padding:60px">Loading feeds...</div>';
+
+    try {
+        const resp = await fetch(`/api/feeds?category=${category}&limit=50`);
+        const data = await resp.json();
+        allFeeds = data.feeds;
+        renderFeeds(data.feeds);
+    } catch (e) {
+        grid.innerHTML = '<div class="error-message">Failed to load feeds</div>';
+    }
+}
+
+function renderFeeds(feeds) {
+    const grid = document.getElementById('feeds-grid');
+
+    if (!feeds || feeds.length === 0) {
+        grid.innerHTML = '<div class="results-placeholder"><p>No feeds available for this category</p></div>';
+        return;
+    }
+
+    grid.innerHTML = feeds.map(feed => `
+        <div class="feed-card ${feed.severity}">
+            <div class="feed-card-header">
+                <span class="severity-badge ${feed.severity}">${feed.severity.toUpperCase()}</span>
+                <span class="feed-source">${escapeHtml(feed.source)}</span>
+                <span class="feed-category">${feed.category}</span>
+            </div>
+            <h3 class="feed-title">${escapeHtml(feed.title)}</h3>
+            <p class="feed-summary">${escapeHtml(feed.summary)}</p>
+            <div class="feed-footer">
+                <span class="feed-time">${feed.timestamp?.replace('T', ' ').replace('Z', '') || ''}</span>
+                ${feed.tlp ? `<span class="tlp-badge tlp-${feed.tlp.toLowerCase()}">TLP:${feed.tlp}</span>` : ''}
+                ${feed.url ? `<a href="${escapeHtml(feed.url)}" target="_blank" class="result-link">Source →</a>` : ''}
+            </div>
+            ${feed.iocs && feed.iocs.length ? `
+                <div class="feed-iocs">
+                    <span class="ioc-label">IOCs:</span>
+                    ${feed.iocs.map(ioc => `<code class="ioc-value">${escapeHtml(ioc)}</code>`).join(' ')}
+                </div>
+            ` : ''}
+        </div>
+    `).join('');
+}
+
+function filterFeeds(category, btn) {
+    document.querySelectorAll('.feed-filters .btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentFilter = category;
+    loadFeeds(category);
+}
+
+function refreshFeeds() {
+    loadFeeds(currentFilter);
+    showToast('Feeds refreshed');
+}
+
+function exportFeeds() {
+    const filtered = currentFilter === 'all' ? allFeeds : allFeeds.filter(f => f.category === currentFilter);
+    const blob = new Blob([JSON.stringify(filtered, null, 2)], {type: 'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `threat-feeds-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text || '';
+    return div.innerHTML;
+}
+
+function showToast(msg) {
+    const container = document.getElementById('alert-toast');
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    toast.textContent = msg;
+    container.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
+}
+
+// Initialize
+loadFeeds();
+setInterval(() => loadFeeds(currentFilter), 60000);
+</script>
+{% endblock %}

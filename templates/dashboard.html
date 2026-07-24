@@ -1,0 +1,275 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - Threat Intelligence Platform{% endblock %}
+{% block nav_dashboard %}active{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Threat Intelligence Dashboard</h1>
+    <p class="subtitle">Real-time overview of the threat landscape</p>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card critical">
+        <div class="stat-value" id="stat-critical">0</div>
+        <div class="stat-label">Critical</div>
+    </div>
+    <div class="stat-card high">
+        <div class="stat-value" id="stat-high">0</div>
+        <div class="stat-label">High</div>
+    </div>
+    <div class="stat-card medium">
+        <div class="stat-value" id="stat-medium">0</div>
+        <div class="stat-label">Medium</div>
+    </div>
+    <div class="stat-card low">
+        <div class="stat-value" id="stat-low">0</div>
+        <div class="stat-label">Low</div>
+    </div>
+    <div class="stat-card total">
+        <div class="stat-value" id="stat-total">0</div>
+        <div class="stat-label">Total Threats</div>
+    </div>
+    <div class="stat-card updated">
+        <div class="stat-value" id="stat-updated">--</div>
+        <div class="stat-label">Last Updated</div>
+    </div>
+</div>
+
+<div class="dashboard-grid">
+    <div class="dashboard-panel">
+        <div class="panel-header">
+            <h2>🔴 Live Threat Alerts</h2>
+            <span class="live-badge" id="ws-status">● Connecting</span>
+        </div>
+        <div class="alert-feed" id="alert-feed">
+            <div class="alert-placeholder">Waiting for threat data...</div>
+        </div>
+    </div>
+
+    <div class="dashboard-panel">
+        <div class="panel-header">
+            <h2>📡 Telegram Intelligence</h2>
+            <a href="/telegram" class="panel-link">View All →</a>
+        </div>
+        <div class="telegram-preview" id="telegram-preview">
+            <div class="alert-placeholder">Loading Telegram data...</div>
+        </div>
+    </div>
+
+    <div class="dashboard-panel">
+        <div class="panel-header">
+            <h2>⚡ Latest Threat Feeds</h2>
+            <a href="/feeds" class="panel-link">View All →</a>
+        </div>
+        <div class="feeds-preview" id="feeds-preview">
+            <div class="alert-placeholder">Loading feed data...</div>
+        </div>
+    </div>
+
+    <div class="dashboard-panel">
+        <div class="panel-header">
+            <h2>🕵️ Dark Web Activity</h2>
+            <a href="/darkweb" class="panel-link">Search →</a>
+        </div>
+        <div class="darkweb-preview" id="darkweb-preview">
+            <div class="alert-placeholder">Loading dark web data...</div>
+        </div>
+    </div>
+</div>
+
+<div class="dashboard-panel full-width">
+    <div class="panel-header">
+        <h2>🔥 Trending Threat Topics</h2>
+        <span class="update-time" id="update-time"></span>
+    </div>
+    <div class="trending-tags" id="trending-tags">
+        <span class="tag critical">Ransomware</span>
+        <span class="tag high">Zero-Day</span>
+        <span class="tag critical">Data Breach</span>
+        <span class="tag high">Initial Access</span>
+        <span class="tag medium">Infostealer</span>
+        <span class="tag high">Supply Chain</span>
+        <span class="tag critical">CVE-2026</span>
+        <span class="tag medium">Phishing</span>
+        <span class="tag high">APT29</span>
+        <span class="tag critical">LockBit</span>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// WebSocket connection for real-time alerts
+let ws = null;
+const maxAlerts = 50;
+
+function connectWebSocket() {
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(`${protocol}//${location.host}/ws/alerts`);
+
+    ws.onopen = () => {
+        document.getElementById('ws-status').textContent = '● Live';
+        document.getElementById('ws-status').style.color = '#00ff88';
+    };
+
+    ws.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            if (data.type !== 'heartbeat') {
+                addAlert(data);
+            }
+        } catch (e) {}
+    };
+
+    ws.onclose = () => {
+        document.getElementById('ws-status').textContent = '● Reconnecting';
+        document.getElementById('ws-status').style.color = '#ff6b6b';
+        setTimeout(connectWebSocket, 5000);
+    };
+}
+
+function addAlert(data) {
+    const feed = document.getElementById('alert-feed');
+    const placeholder = feed.querySelector('.alert-placeholder');
+    if (placeholder) placeholder.remove();
+
+    const alertEl = document.createElement('div');
+    alertEl.className = `alert-item ${data.severity || 'medium'}`;
+    alertEl.innerHTML = `
+        <div class="alert-source">[${data.source}] ${data.type || 'alert'}</div>
+        <div class="alert-title">${escapeHtml(data.title || data.text || '')}</div>
+        <div class="alert-time">${formatTime(data.timestamp)}</div>
+    `;
+
+    feed.insertBefore(alertEl, feed.firstChild);
+
+    // Limit alerts
+    while (feed.children.length > maxAlerts) {
+        feed.lastElementChild.remove();
+    }
+
+    // Toast notification for critical
+    if (data.severity === 'critical') {
+        showToast(`🚨 CRITICAL: ${data.title || data.text || 'New threat alert'}`);
+    }
+}
+
+function showToast(message) {
+    const container = document.getElementById('alert-toast');
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    toast.textContent = message;
+    container.appendChild(toast);
+    setTimeout(() => toast.remove(), 5000);
+}
+
+function formatTime(ts) {
+    if (!ts) return '';
+    const d = new Date(ts);
+    return d.toLocaleTimeString();
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Load stats
+async function loadStats() {
+    try {
+        const resp = await fetch('/api/stats');
+        const data = await resp.json();
+        document.getElementById('stat-critical').textContent = data.critical || 0;
+        document.getElementById('stat-high').textContent = data.high || 0;
+        document.getElementById('stat-medium').textContent = data.medium || 0;
+        document.getElementById('stat-low').textContent = data.low || 0;
+        document.getElementById('stat-total').textContent = data.total_threats || 0;
+        if (data.last_updated) {
+            document.getElementById('stat-updated').textContent = new Date(data.last_updated).toLocaleTimeString();
+        }
+    } catch (e) {}
+}
+
+// Load Telegram preview
+async function loadTelegramPreview() {
+    try {
+        const resp = await fetch('/api/telegram/channels');
+        const data = await resp.json();
+        const preview = document.getElementById('telegram-preview');
+        preview.innerHTML = '';
+        let count = 0;
+        for (const [category, channels] of Object.entries(data.channels)) {
+            for (const ch of channels.slice(0, 2)) {
+                if (count++ >= 5) break;
+                const el = document.createElement('div');
+                el.className = 'preview-item';
+                el.innerHTML = `
+                    <span class="risk-badge ${ch.risk_level}">${ch.risk_level}</span>
+                    <strong>${escapeHtml(ch.name)}</strong>
+                    <span class="preview-meta">${ch.member_count.toLocaleString()} members | ${ch.description}</span>
+                `;
+                preview.appendChild(el);
+            }
+        }
+    } catch (e) {}
+}
+
+// Load Feeds preview
+async function loadFeedsPreview() {
+    try {
+        const resp = await fetch('/api/feeds?limit=5');
+        const data = await resp.json();
+        const preview = document.getElementById('feeds-preview');
+        preview.innerHTML = '';
+        for (const feed of data.feeds) {
+            const el = document.createElement('div');
+            el.className = 'preview-item';
+            el.innerHTML = `
+                <span class="severity-badge ${feed.severity}">${feed.severity}</span>
+                <strong>${escapeHtml(feed.title)}</strong>
+                <span class="preview-meta">${feed.source} · ${feed.timestamp?.split('T')[0]}</span>
+            `;
+            preview.appendChild(el);
+        }
+    } catch (e) {}
+}
+
+// Load Dark Web preview
+async function loadDarkwebPreview() {
+    try {
+        const resp = await fetch('/api/darkweb/search', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({query: 'ransomware breach exploit', sources: ['all']})
+        });
+        const data = await resp.json();
+        const preview = document.getElementById('darkweb-preview');
+        preview.innerHTML = '';
+        for (const item of data.results.slice(0, 5)) {
+            const el = document.createElement('div');
+            el.className = 'preview-item';
+            el.innerHTML = `
+                <span class="severity-badge ${item.severity || 'medium'}">${item.severity || 'medium'}</span>
+                <strong>${escapeHtml(item.title || '')}</strong>
+                <span class="preview-meta">${item.source} · ${item.date || ''} · ${item.type || ''}</span>
+            `;
+            preview.appendChild(el);
+        }
+    } catch (e) {}
+}
+
+function refreshAll() {
+    loadStats();
+    loadTelegramPreview();
+    loadFeedsPreview();
+    loadDarkwebPreview();
+    document.getElementById('update-time').textContent = `Last refresh: ${new Date().toLocaleTimeString()}`;
+}
+
+// Initialize
+connectWebSocket();
+refreshAll();
+setInterval(refreshAll, 30000);
+</script>
+{% endblock %}

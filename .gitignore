@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Virtual environment
+venv/
+.venv/
+env/
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Runtime
+*.log
+*.pid
+instance/
+
+# Secrets / Config
+.env
+*.secret
+credentials.json
+telegram.session
+
+# OS
+Thumbs.db
+Desktop.ini
+
+# Project specific
+*.sock
+nohup.out

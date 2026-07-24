@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% block title %}Dark Web Search - Threat Intelligence Platform{% endblock %}
+{% block nav_darkweb %}active{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>🕵️ Dark Web & Hacker Forum Search</h1>
+    <p class="subtitle">Search clearnet and dark web sources for threat intelligence</p>
+</div>
+
+<div class="search-container">
+    <div class="search-box">
+        <input type="text" id="search-query" class="search-input" placeholder="Search dark web, forums, exploit databases..." 
+               onkeydown="if(event.key==='Enter') performSearch()">
+        <button onclick="performSearch()" class="btn btn-primary">🔍 Search</button>
+    </div>
+    <div class="search-filters">
+        <label class="filter-label">Sources:</label>
+        <div class="filter-chips" id="source-filters">
+            <span class="chip active" data-source="all">All Sources</span>
+            <span class="chip" data-source="exploitdb">Exploit-DB</span>
+            <span class="chip" data-source="cvelist">CVE Database</span>
+            <span class="chip" data-source="otx">AlienVault OTX</span>
+            <span class="chip" data-source="pastebin">Paste Sites</span>
+            <span class="chip" data-source="darknet">DarkNet Markets</span>
+            <span class="chip" data-source="ransomware">Ransomware Tracker</span>
+            <span class="chip" data-source="breachforums">BreachForums</span>
+            <span class="chip" data-source="xss_is">XSS.is Forum</span>
+        </div>
+    </div>
+</div>
+
+<div class="quick-searches">
+    <span class="quick-label">Quick Search:</span>
+    <button class="btn btn-sm" onclick="quickSearch('ransomware')">Ransomware</button>
+    <button class="btn btn-sm" onclick="quickSearch('0day exploit')">0Day Exploits</button>
+    <button class="btn btn-sm" onclick="quickSearch('data breach leak')">Data Breaches</button>
+    <button class="btn btn-sm" onclick="quickSearch('initial access')">Initial Access</button>
+    <button class="btn btn-sm" onclick="quickSearch('CVE-2026')">CVE-2026</button>
+    <button class="btn btn-sm" onclick="quickSearch('infostealer malware')">Infostealer</button>
+    <button class="btn btn-sm" onclick="quickSearch('credentials combo')">Credentials</button>
+    <button class="btn btn-sm" onclick="quickSearch('ransomware affiliate')">RaaS</button>
+</div>
+
+<div class="results-header" id="results-header" style="display:none">
+    <h2>Results: <span id="results-count">0</span> found for "<span id="results-query"></span>"</h2>
+    <div class="results-actions">
+        <button class="btn btn-sm" onclick="exportResults()">📥 Export JSON</button>
+    </div>
+</div>
+
+<div class="results-container" id="results-container">
+    <div class="results-placeholder">
+        <div class="placeholder-icon">🔍</div>
+        <p>Enter a search query to discover threat intelligence from dark web and hacker forums</p>
+        <p class="placeholder-sub">Search across exploit databases, forums, paste sites, CVE databases, and more</p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentResults = [];
+const selectedSources = new Set(['all']);
+
+// Source filter chip handling
+document.getElementById('source-filters').addEventListener('click', (e) => {
+    if (e.target.classList.contains('chip')) {
+        const source = e.target.dataset.source;
+        if (source === 'all') {
+            selectedSources.clear();
+            selectedSources.add('all');
+            document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+            e.target.classList.add('active');
+        } else {
+            selectedSources.delete('all');
+            document.querySelector('.chip[data-source="all"]').classList.remove('active');
+            if (selectedSources.has(source)) {
+                selectedSources.delete(source);
+                e.target.classList.remove('active');
+            } else {
+                selectedSources.add(source);
+                e.target.classList.add('active');
+            }
+            if (selectedSources.size === 0) {
+                selectedSources.add('all');
+                document.querySelector('.chip[data-source="all"]').classList.add('active');
+            }
+        }
+    }
+});
+
+function quickSearch(query) {
+    document.getElementById('search-query').value = query;
+    performSearch();
+}
+
+async function performSearch() {
+    const query = document.getElementById('search-query').value.trim();
+    if (!query) return;
+
+    const resultsContainer = document.getElementById('results-container');
+    resultsContainer.innerHTML = '<div class="loading-spinner">Searching dark web sources...</div>';
+
+    try {
+        const resp = await fetch('/api/darkweb/search', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                query: query,
+                sources: [...selectedSources]
+            })
+        });
+        const data = await resp.json();
+        currentResults = data.results;
+
+        document.getElementById('results-header').style.display = 'flex';
+        document.getElementById('results-count').textContent = data.count;
+        document.getElementById('results-query').textContent = data.query;
+
+        renderResults(data.results);
+    } catch (e) {
+        resultsContainer.innerHTML = '<div class="error-message">Search failed. Please try again.</div>';
+    }
+}
+
+function renderResults(results) {
+    const container = document.getElementById('results-container');
+
+    if (!results || results.length === 0) {
+        container.innerHTML = `
+            <div class="results-placeholder">
+                <p>No results found. Try a broader search or different keywords.</p>
+            </div>`;
+        return;
+    }
+
+    container.innerHTML = results.map(r => `
+        <div class="result-card ${r.severity || ''}">
+            <div class="result-header">
+                <span class="severity-badge ${r.severity || 'medium'}">${(r.severity || 'medium').toUpperCase()}</span>
+                <span class="result-source">${escapeHtml(r.source)}</span>
+                <span class="result-type">${r.type || ''}</span>
+                <span class="result-date">${r.date || ''}</span>
+            </div>
+            <h3 class="result-title">${escapeHtml(r.title || 'Untitled')}</h3>
+            <p class="result-content">${escapeHtml((r.content || '').substring(0, 500))}</p>
+            <div class="result-footer">
+                <div class="result-tags">
+                    ${(r.tags || []).map(t => `<span class="tag ${r.severity || 'medium'}">${escapeHtml(t)}</span>`).join('')}
+                </div>
+                ${r.author ? `<span class="result-author">By: ${escapeHtml(r.author)}</span>` : ''}
+                ${r.url ? `<a href="${escapeHtml(r.url)}" target="_blank" class="result-link">Open Source →</a>` : ''}
+            </div>
+        </div>
+    `).join('');
+}
+
+function exportResults() {
+    const blob = new Blob([JSON.stringify(currentResults, null, 2)], {type: 'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `darkweb-search-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('Results exported as JSON');
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text || '';
+    return div.innerHTML;
+}
+</script>
+{% endblock %}

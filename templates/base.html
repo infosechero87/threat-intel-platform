@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Threat Intelligence Platform{% endblock %}</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡️</text></svg>">
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <div class="app-container">
+        <nav class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <span class="logo-icon">🛡️</span>
+                    <span class="logo-text">Threat<span class="accent">Intel</span></span>
+                </div>
+            </div>
+            <ul class="nav-links">
+                <li><a href="/" class="nav-item {% block nav_dashboard %}{% endblock %}">
+                    <span class="nav-icon">📊</span> Dashboard
+                </a></li>
+                <li><a href="/darkweb" class="nav-item {% block nav_darkweb %}{% endblock %}">
+                    <span class="nav-icon">🕵️</span> Dark Web Search
+                </a></li>
+                <li><a href="/telegram" class="nav-item {% block nav_telegram %}{% endblock %}">
+                    <span class="nav-icon">📡</span> Telegram Monitor
+                </a></li>
+                <li><a href="/feeds" class="nav-item {% block nav_feeds %}{% endblock %}">
+                    <span class="nav-icon">⚡</span> Threat Feeds
+                </a></li>
+                <li><a href="/credentials" class="nav-item {% block nav_creds %}{% endblock %}">
+                    <span class="nav-icon">🔑</span> Credential Checker
+                </a></li>
+            </ul>
+            <div class="sidebar-footer">
+                <div class="status-indicator">
+                    <span class="status-dot online"></span> System Online
+                </div>
+                <div class="version">v2.0.0</div>
+            </div>
+        </nav>
+        <main class="main-content">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+    <div id="alert-toast" class="toast-container"></div>
+    <script src="/static/js/app.js"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>
